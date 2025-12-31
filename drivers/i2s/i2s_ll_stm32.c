@@ -58,13 +58,15 @@ static int queue_put(struct k_msgq *q, void *mem_block, size_t size, int32_t tim
 	return k_msgq_put(q, &item, SYS_TIMEOUT_MS(timeout));
 }
 
-static void stream_queue_drop(struct stream *s)
+static void stream_queue_drop(struct stream *s, bool rx)
 {
 	size_t size;
 	void *mem_block;
 
 	while (queue_get(s->msgq, &mem_block, &size, 0) == 0) {
-		k_mem_slab_free(s->cfg.mem_slab, mem_block);
+		if (rx || ((s->cfg.options & I2S_OPT_CALLER_MANAGED_TX) == 0)) {
+			k_mem_slab_free(s->cfg.mem_slab, mem_block);
+		}
 	}
 }
 
@@ -194,7 +196,7 @@ static int i2s_stm32_configure(const struct device *dev, enum i2s_dir dir,
 	}
 
 	if (i2s_cfg->frame_clk_freq == 0U) {
-		stream_queue_drop(stream);
+		stream_queue_drop(stream, (dir == I2S_DIR_RX));
 		memset(&stream->cfg, 0, sizeof(struct i2s_config));
 		stream->state = I2S_STATE_NOT_READY;
 		return 0;
@@ -402,7 +404,7 @@ do_trigger_stop:
 			return -EIO;
 		}
 		stream->stream_disable(stream, dev);
-		stream_queue_drop(stream);
+		stream_queue_drop(stream, (dir == I2S_DIR_RX));
 		stream->state = I2S_STATE_READY;
 		break;
 
@@ -412,7 +414,7 @@ do_trigger_stop:
 			return -EIO;
 		}
 		stream->state = I2S_STATE_READY;
-		stream_queue_drop(stream);
+		stream_queue_drop(stream, (dir == I2S_DIR_RX));
 		break;
 
 	default:
@@ -618,7 +620,9 @@ static void dma_tx_callback(const struct device *dma_dev, void *arg,
 	__ASSERT_NO_MSG(stream->mem_block != NULL);
 
 	/* All block data sent */
-	k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
+	if ((stream->cfg.options & I2S_OPT_CALLER_MANAGED_TX) == 0) {
+		k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
+	}
 	stream->mem_block = NULL;
 
 	/* Stop transmission if there was an error */
@@ -635,7 +639,7 @@ static void dma_tx_callback(const struct device *dma_dev, void *arg,
 		 * send all data in the transmit queue and stop the transmission.
 		 */
 		if (queue_is_empty(stream->msgq) == true) {
-			stream_queue_drop(stream);
+			stream_queue_drop(stream, false);
 			stream->state = I2S_STATE_READY;
 			goto tx_disable;
 		} else if (stream->tx_stop_for_drain == false) {
@@ -852,7 +856,7 @@ static int tx_stream_start(struct stream *stream, const struct device *dev)
 			(void *)LL_SPI_DMA_GetRegAddr(cfg->i2s),
 #endif
 			stream->dst_addr_increment, stream->fifo_threshold,
-			stream->cfg.block_size);
+			mem_block_size);
 	if (ret < 0) {
 		LOG_ERR("Failed to start TX DMA transfer: %d", ret);
 		return ret;
@@ -914,7 +918,9 @@ static void tx_stream_disable(struct stream *stream, const struct device *dev)
 
 	dma_stop(stream->dev_dma, stream->dma_channel);
 	if (stream->mem_block != NULL) {
-		k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
+		if ((stream->cfg.options & I2S_OPT_CALLER_MANAGED_TX) == 0) {
+			k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
+		}
 		stream->mem_block = NULL;
 	}
 

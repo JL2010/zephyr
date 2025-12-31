@@ -204,6 +204,15 @@ typedef uint8_t i2s_opt_t;
  */
 #define I2S_OPT_PINGPONG                    BIT(6)
 
+/** @brief Caller managed TX mode
+ *
+ * In caller managed TX mode the driver will not associate TX buffers with the
+ * memory slab provided in the configuration structure, and therefore, will not
+ * attempt to free them. This is normally used for static const audio streams
+ * that can be DMAed directly from flash without needing to copy them into RAM.
+ */
+#define I2S_OPT_CALLER_MANAGED_TX           BIT(5)
+
 /**
  * @brief I2C Direction
  */
