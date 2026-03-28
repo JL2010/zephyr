@@ -33,6 +33,11 @@ static bool queue_is_empty(struct k_msgq *q)
 	return (k_msgq_num_used_get(q) == 0) ? true : false;
 }
 
+static uint32_t queue_num_pending(struct k_msgq *q)
+{
+	return k_msgq_num_used_get(q);
+}
+
 /*
  * Get data from the queue
  */
@@ -622,6 +627,12 @@ static void dma_tx_callback(const struct device *dma_dev, void *arg,
 	/* All block data sent */
 	if ((stream->cfg.options & I2S_OPT_CALLER_MANAGED_TX) == 0) {
 		k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
+		if (stream->cfg.event_cb) {
+			uint32_t remaining = queue_num_pending(stream->msgq);
+			if (remaining == 0) {
+				stream->cfg.event_cb(I2S_EVENT_TX_COMPLETE);
+			}
+		}
 	}
 	stream->mem_block = NULL;
 
@@ -669,6 +680,13 @@ static void dma_tx_callback(const struct device *dma_dev, void *arg,
 			stream->state = I2S_STATE_ERROR;
 		}
 		goto tx_disable;
+	}
+
+	if (stream->cfg.event_cb && stream->cfg.tx_queue_low_threshold) {
+		uint32_t remaining = queue_num_pending(stream->msgq);
+		if (stream->cfg.tx_queue_low_threshold == remaining) {
+			stream->cfg.event_cb(I2S_EVENT_TX_QUEUE_LOW_THRESHOLD);
+		}
 	}
 
 	/* Assure cache coherency before DMA read operation */

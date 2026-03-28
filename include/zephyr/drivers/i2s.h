@@ -287,6 +287,23 @@ enum i2s_trigger_cmd {
 	I2S_TRIGGER_PREPARE,
 };
 
+enum i2s_event {
+	/** @brief Enqueued TX buffers has reached the configured low threshold
+	 *
+	 * This event occurs when the remaining number of enqueued TX transmissions
+	 * has met the configured low threshold.
+	 */
+	I2S_EVENT_TX_QUEUE_LOW_THRESHOLD,
+	/** @brief TX buffer queue has been fully flushed
+	 *
+	 * This event occurs when the last enqueued transaction has been fully sent
+	 * and the TX buffer queue is now empty.
+	 */
+	I2S_EVENT_TX_COMPLETE,
+};
+
+typedef void(i2s_event_callback_t)(enum i2s_event event);
+
 /** @struct i2s_config
  * @brief Interface configuration options.
  *
@@ -321,6 +338,11 @@ struct i2s_config {
 	 * is full or RX queue is empty, or 0, or SYS_FOREVER_MS.
 	 */
 	int32_t timeout;
+	/** Threshold value to use to determine when to emit
+	 * I2S_EVENT_TX_QUEUE_LOW_THRESHOLD event. Set to 0 to disable. */
+	size_t tx_queue_low_threshold;
+	/** User callback function to handle i2s_event events. */
+	i2s_event_callback_t *event_cb;
 };
 
 /**
