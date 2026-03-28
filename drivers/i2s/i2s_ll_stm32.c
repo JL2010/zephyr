@@ -33,6 +33,11 @@ static bool queue_is_empty(struct k_msgq *q)
 	return (k_msgq_num_used_get(q) == 0) ? true : false;
 }
 
+static uint32_t queue_num_pending(struct k_msgq *q)
+{
+	return k_msgq_num_used_get(q);
+}
+
 /*
  * Get data from the queue
  */
@@ -607,6 +612,7 @@ static void dma_tx_callback(const struct device *dma_dev, void *arg,
 	struct i2s_stm32_data *const dev_data = dev->data;
 	struct stream *stream = &dev_data->tx;
 	size_t mem_block_size;
+	uint32_t remaining;
 	int ret;
 
 	if (status < 0) {
@@ -667,6 +673,16 @@ static void dma_tx_callback(const struct device *dma_dev, void *arg,
 		goto tx_disable;
 	}
 
+	/* If the user requested to be notified of a low threshold level and the current remaining
+	 * number of items in the queue matches that level, then notify with a
+	 * I2S_EVENT_TX_QUEUE_LOW_THRESHOLD event */
+	if (stream->cfg.event_cb && stream->cfg.tx_queue_low_threshold) {
+		remaining = queue_num_pending(stream->msgq);
+		if (stream->cfg.tx_queue_low_threshold == remaining) {
+			stream->cfg.event_cb(I2S_EVENT_TX_QUEUE_LOW_THRESHOLD);
+		}
+	}
+
 	/* Assure cache coherency before DMA read operation */
 	sys_cache_data_flush_range(stream->mem_block, mem_block_size);
 
@@ -689,6 +705,9 @@ static void dma_tx_callback(const struct device *dma_dev, void *arg,
 tx_disable:
 	if ((stream->cfg.options & I2S_OPT_BIT_CLK_GATED) != 0) {
 		tx_stream_disable(stream, dev);
+	}
+	if (stream->cfg.event_cb) {
+		stream->cfg.event_cb(I2S_EVENT_TX_COMPLETE);
 	}
 }
 
